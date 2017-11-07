@@ -2,6 +2,8 @@ import expect from 'expect';
 import Rx from 'rxjs';
 import { createLogic, createLogicMiddleware } from '../src/index';
 
+const NODE_ENV = process.env.NODE_ENV;
+
 describe('createLogic', () => {
   describe('createLogic()', () => {
     it('throws type is required error', () => {
@@ -19,7 +21,37 @@ describe('createLogic', () => {
     });
   });
 
-  describe('debounce)', () => {
+  describe('warnTimeout', () => {
+    it('defaults to 60000 ms', () => {
+      const fooLogic = createLogic({
+        type: '*'
+      });
+      expect(fooLogic.warnTimeout).toBe(60000);
+    });
+
+    it('can be set', () => {
+      const fooLogic = createLogic({
+        type: '*',
+        warnTimeout: 120000 // 120,000ms == 2 minutes
+      });
+      expect(fooLogic.warnTimeout).toBe(120000);
+    });
+
+    it('errors if they try to set it as processOptions.warnTimeout', () => {
+      function fn() {
+        createLogic({
+          type: '*',
+          processOptions: {
+            // this is invalid, warnTimeout is a top level option
+            warnTimeout: 120000 // 120,000ms == 2 minutes
+          }
+        });
+      }
+      expect(fn).toThrow('warnTimeout is a top level createLogic option, not a processOptions option');
+    });
+  });
+
+  describe('debounce', () => {
     let dispatch;
     beforeEach((done) => {
       const next = expect.createSpy();
@@ -69,7 +101,7 @@ describe('createLogic', () => {
     });
   });
 
-  describe('debounce and latest)', () => {
+  describe('debounce and latest', () => {
     let dispatch;
     beforeEach((done) => {
       const next = expect.createSpy();
@@ -120,7 +152,7 @@ describe('createLogic', () => {
     });
   });
 
-  describe('throttle)', () => {
+  describe('throttle', () => {
     let dispatch;
     beforeEach((done) => {
       const asyncProcessDelay = 100; // simulate slow service
@@ -493,6 +525,282 @@ describe('createLogic', () => {
         });
       }).toThrow('unknown or misspelled processOption(s)');
     });
+  });
+
+  describe('use of single-dispatch mode w/o dispatchMultiple or warnTimeout: 0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    if (NODE_ENV === 'production') {
+      it('PROD should not have called console.error with warning', () => {
+        expect(consoleErrorSpy.calls.length).toBe(0);
+      });
+    } else { // not production
+      it('warn that single-dispatch mode is deprecated', () => {
+        createLogic({
+          type: '*',
+          process(deps, dispatch) {
+            dispatch({ type: 'BAR' });
+          }
+        });
+        expect(consoleErrorSpy.calls.length).toBe(1);
+        expect(consoleErrorSpy.calls[0].arguments[0]).toBe(
+          'warning: in logic for type(s): * - single-dispatch mode is deprecated, call done when finished dispatching. For non-ending logic, set warnTimeout: 0'
+        );
+      });
+    }
+  });
+
+  describe('use of single-dispatch mode warnTimeout: 200 w/o dispatchMultiple', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    if (NODE_ENV === 'production') {
+      it('PROD should not have called console.error with warning', () => {
+        expect(consoleErrorSpy.calls.length).toBe(0);
+      });
+    } else { // not production
+      it('warn that single-dispatch mode is deprecated', () => {
+        createLogic({
+          type: '*',
+          warnTimeout: 200,
+          process(deps, dispatch) {
+            dispatch({ type: 'BAR' });
+          }
+        });
+        expect(consoleErrorSpy.calls.length).toBe(1);
+        expect(consoleErrorSpy.calls[0].arguments[0]).toBe(
+          'warning: in logic for type(s): * - single-dispatch mode is deprecated, call done when finished dispatching. For non-ending logic, set warnTimeout: 0'
+        );
+      });
+    }
+  });
+
+  describe('use of single-dispatch mode w/dispatchMultiple=true', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    if (NODE_ENV === 'production') {
+      it('PROD should not have called console.error with warning', () => {
+        expect(consoleErrorSpy.calls.length).toBe(0);
+      });
+    } else { // not production
+      it('should only warn about dispatchMultiple true in next version', () => {
+        createLogic({
+          type: '*',
+          processOptions: { dispatchMultiple: true },
+          process(deps, dispatch) {
+            dispatch({ type: 'BAR' });
+          }
+        });
+        expect(consoleErrorSpy.calls.length).toBe(1);
+        expect(consoleErrorSpy.calls[0].arguments[0]).toBe(
+          'warning: in logic for type(s): * - dispatchMultiple is always true in next version. For non-ending logic, set warnTimeout to 0'
+        );
+      });
+    }
+  });
+
+  describe('use of single-dispatch mode w/warnTimeout:0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    it('should not log anything', () => {
+      createLogic({
+        type: '*',
+        warnTimeout: 0,
+        process(deps, dispatch) {
+          dispatch({ type: 'BAR' });
+        }
+      });
+      expect(consoleErrorSpy.calls.length).toBe(0);
+    });
+  });
+
+  describe('dispatchMultiple=true warnTimeout != 0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    if (NODE_ENV === 'production') {
+      it('PROD should not have called console.error with warning', () => {
+        expect(consoleErrorSpy.calls.length).toBe(0);
+      });
+    } else { // not production
+      it('should warn dispatchMultiple is always true in next version', () => {
+        createLogic({
+          type: /.*/,
+          warnTimeout: 100,
+          processOptions: {
+            dispatchMultiple: true
+          },
+          process(deps, dispatch, done) {
+            dispatch({ type: 'BAR' });
+            done();
+          }
+        });
+        expect(consoleErrorSpy.calls.length).toBe(1);
+        expect(consoleErrorSpy.calls[0].arguments[0]).toBe(
+          'warning: in logic for type(s): /.*/ - dispatchMultiple is always true in next version. For non-ending logic, set warnTimeout to 0'
+        );
+      });
+    }
+  });
+
+  describe('dispatchMultiple=false warnTimeout != 0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    if (NODE_ENV === 'production') {
+      it('PROD should not have called console.error with warning', () => {
+        expect(consoleErrorSpy.calls.length).toBe(0);
+      });
+    } else { // not production
+      it('should warn dispatchMultiple is always true in next version', () => {
+        createLogic({
+          type: ['FOO', 'BAR'],
+          warnTimeout: 100,
+          processOptions: {
+            dispatchMultiple: false
+          },
+          process(deps, dispatch, done) {
+            dispatch({ type: 'BAR' });
+            done();
+          }
+        });
+        expect(consoleErrorSpy.calls.length).toBe(1);
+        expect(consoleErrorSpy.calls[0].arguments[0]).toBe(
+          'warning: in logic for type(s): FOO,BAR - dispatchMultiple is always true in next version. For non-ending logic, set warnTimeout to 0'
+        );
+      });
+    }
+  });
+
+  describe('warnTimeout != 0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    it('should not log', () => {
+      createLogic({
+        type: '*',
+        warnTimeout: 100,
+        process(deps, dispatch, done) {
+          dispatch({ type: 'BAR' });
+          done();
+        }
+      });
+      expect(consoleErrorSpy.calls.length).toBe(0);
+    });
+
+  });
+
+  describe('warnTimeout: 0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    it('should not log', () => {
+      createLogic({
+        type: '*',
+        warnTimeout: 0,
+        process(deps, dispatch, done) {
+          dispatch({ type: 'BAR' });
+          done();
+        }
+      });
+      expect(consoleErrorSpy.calls.length).toBe(0);
+    });
+
+  });
+
+  describe('dispatchMultiple=true warnTimeout: 0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    it('should not log', () => {
+      createLogic({
+        type: '*',
+        warnTimeout: 0,
+        processOptions: {
+          dispatchMultiple: true
+        },
+        process(deps, dispatch, done) {
+          dispatch({ type: 'BAR' });
+          done();
+        }
+      });
+      expect(consoleErrorSpy.calls.length).toBe(0);
+    });
+
+  });
+
+  describe('dispatchMultiple=false warnTimeout: 0', () => {
+    let consoleErrorSpy;
+    beforeEach('mock console.error', () => {
+      consoleErrorSpy = expect.spyOn(console, 'error');
+    });
+    afterEach('reset console.error', () => {
+      consoleErrorSpy.restore();
+    });
+
+    it('should not log', () => {
+      createLogic({
+        type: '*',
+        warnTimeout: 0,
+        processOptions: {
+          dispatchMultiple: false
+        },
+        process(deps, dispatch, done) {
+          dispatch({ type: 'BAR' });
+          done();
+        }
+      });
+      expect(consoleErrorSpy.calls.length).toBe(0);
+    });
+
   });
 
 });

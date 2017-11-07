@@ -29,7 +29,7 @@ Leverage powerful **declarative** features by simply setting properties:
  - **throttling**
  - dispatch actions - auto **decoration** of payloads
 
-Testing your logic is straight forward and simple.
+Testing your logic is straight forward and simple. [redux-logic-test](https://github.com/jeffbski/redux-logic-test) provides additional utilities to make testing a breeze.
 
 With simple code your logic can:
 
@@ -52,6 +52,8 @@ This is an example of logic which will listen for actions of type FETCH_POLLS an
 The developer can just declare the type filtering, cancellation, and take latest behavior, no code needs to be written for that. That leaves the developer to focus on the real business requirements which are invoked in the process hook.
 
 ```js
+import { createLogic } from 'redux-logic';
+
 const fetchPollsLogic = createLogic({
 
   // declarative built-in functionality wraps your code
@@ -76,11 +78,12 @@ const fetchPollsLogic = createLogic({
 });
 ```
 
-Since redux-logic gives you the freedom to use your favorite style of JS code (callbacks, promises, async/await, observables), it supports many features to make that easier, [explained in more detail](/jeffbski/redux-logic/blob/master/docs/api.md#dispatch---multi-dispatching-and-process-variable-signature).
+Since redux-logic gives you the freedom to use your favorite style of JS code (callbacks, promises, async/await, observables), it supports many features to make that easier, [explained in more detail](./docs/api.md#dispatch---multi-dispatching-and-process-variable-signature)
 
 
 ## Table of contents
 
+ - <a href="#updates">Updates</a>
  - <a href="#goals">Goals</a>
  - <a href="#usage">Usage</a>
  - <a href="./docs/api.md">Full API</a>
@@ -88,6 +91,20 @@ Since redux-logic gives you the freedom to use your favorite style of JS code (c
  - <a href="#comparison-summaries">Comparison summaries</a> to <a href="#compared-to-fat-action-creators">fat action creators</a>, <a href="#compared-to-redux-thunk">thunks</a>, <a href="#compared-to-redux-observable">redux-observable</a>, <a href="#compared-to-redux-saga">redux-saga</a>, <a href="#compared-to-custom-redux-middleware">custom middleware</a>
  - <a href="#implementing-sampal-pattern">SAM/PAL pattern</a>
  - <a href="#other">Other</a> - todo, inspiration, license
+
+## Updates
+
+Full release notes of breaking and notable changes are available in [releases](https://github.com/jeffbski/redux-logic/releases). This project follows semantic versioning.
+
+A few recent changes that are noteworthy:
+
+### v0.12
+
+These changes are not breaking but they are noteworthy since they prepare for the next version which will be breaking mainly to remove the single dispatch version of process hook which has been a source of confusion.
+
+  - Single dispatch signature for `process` hook is deprecated and warns in development build. This is when you use the signature `process(deps, dispatch)` (including dispatch but not done). To migrate change your use to include done `process(deps, dispatch, done)` and call the `done` cb when done dispatching.
+  - New option `warnTimeout` defaults to 60000 (ms == one minute) which warns (in development build only) when the logic exceeds the specified time without completion. Adjust this value or set it to 0 if you have logic that needs to exceed this time or purposefully never ends (like listening to a web socket)
+
 
 ## Goals
 
@@ -113,14 +130,21 @@ Since redux-logic gives you the freedom to use your favorite style of JS code (c
 
 ## Usage
 
+redux-logic uses rxjs@5 under the covers and to prevent multiple copies (of different versions) from being installed, it is recommended to install rxjs first before redux-logic. That way you can use the same copy of rxjs elsewhere.
+
+If you are never using rxjs outside of redux-logic and don't plan to use Observables directly in your logic then you can skip the rxjs install and it will be installed as a redux-logic dependency. However if you think you might use Observables directly in the future (possibly creating Observables in your logic), it is still recommended to install rxjs separately first
+just to help ensure that only one copy will be in the project.
+
+The rxjs install below `npm install rxjs@^5` installs the lastest 5.x.x version of rxjs.
+
 ```bash
-npm install rxjs --save
+npm install rxjs@^5 --save  # optional see note above
 npm install redux-logic --save
 ```
 
 ```js
 // in configureStore.js
-import { createLogic, createLogicMiddleware } from 'redux-logic';
+import { createLogicMiddleware } from 'redux-logic';
 import rootReducer from './rootReducer';
 import arrLogic from './logic';
 
@@ -153,6 +177,7 @@ export default [
 
 
 // in polls/logic.js
+import { createLogic } from 'redux-logic';
 
 const validationLogic = createLogic({
   type: ADD_USER,
@@ -229,11 +254,13 @@ export default [
 
    - if failType is an action creator function receiving the error value as its only parameter
      - use the return value from the action creator fn for dispatching. ex: `failType: x => ({ type: 'BAR', payload: x, error: true })`
-     - if the action creator fn returns a falsey value like `undefined` then nothing will be dispatched. This allows your action creator to control whether something is actually dispatched based on teh value provided to it.
+     - if the action creator fn returns a falsey value like `undefined` then nothing will be dispatched. This allows your action creator to control whether something is actually dispatched based on the value provided to it.
 
 The successType and failType would enable clean code, where you can simply return a promise or observable that resolves to the payload and rejects on error. The resulting code doesn't have to deal with dispatch and actions directly.
 
 ```js
+import { createLogic } from 'redux-logic';
+
 const fetchPollsLogic = createLogic({
 
   // declarative built-in functionality wraps your code
@@ -326,7 +353,7 @@ For a more detailed comparison with examples, see by article in docs, [Where do 
 ### Compared to redux-observable
 
  - redux-logic doesn't require the developer to use rxjs observables. It uses observables under the covers to provide cancellation, throttling, etc. You simply configure these parameters to get this functionality. You can still use rxjs in your code if you want, but not a requirement.
- - redux-logic hooks in before the reducer stack like middleware allowing validation, verification, auth, tranformations. Allow, reject, tranform actions before they hit your reducers to update your state as well as accessing state after reducers have run. redux-observable hooks in after the reducers have updated state so they have no opportuntity to prevent the updates.
+ - redux-logic hooks in before the reducer stack like middleware allowing validation, verification, auth, transformations. Allow, reject, transform actions before they hit your reducers to update your state as well as accessing state after reducers have run. redux-observable hooks in after the reducers have updated state so they have no opportunity to prevent the updates.
 
 ### Compared to redux-saga
 
@@ -337,7 +364,7 @@ For a more detailed comparison with examples, see by article in docs, [Where do 
 
 ### Compared to custom redux middleware
 
- - Both are fully featured to do any type of business logic (validations, tranformations, processing)
+ - Both are fully featured to do any type of business logic (validations, transformations, processing)
  - redux-logic already has built-in capabilities for some of the hard stuff like cancellation, limiting, dynamic loading of code. With custom middleware you have to implement all functionality.
  - No safety net, if things break it could stop all of your future actions
  - Testing requires some mocking or setup
@@ -376,7 +403,7 @@ redux-logic was inspired from these projects:
 
 (redux-logic only includes the modules of RxJS 5 that it uses)
 ```
-redux-logic.min.js.gz 11KB
+redux-logic.min.js.gz 12KB
 ```
 
 Note: If you are already including RxJS 5 into your project then the resulting delta will be much smaller.
@@ -386,7 +413,6 @@ Note: If you are already including RxJS 5 into your project then the resulting d
  - add typescript support
  - more docs
  - more examples
- - evaulate additional features as outlined above
 
 ## Get involved
 

@@ -2,13 +2,30 @@
 
 Contents:
 
+ - [Installation](#installation)
  - [Main usage](#main-usage)
  - [Execution phase hooks](#execution-phase-hooks---validate-transform-process) - [validate](#validate-hook), [transform](#transform-hook), [process](#process-hook)
  - [Advanced usage](#advanced-usage)
 
+## Installation
+
+redux-logic uses rxjs@5 under the covers and to prevent multiple copies (of different versions) from being installed, it is recommended to install rxjs first before redux-logic. That way you can use the same copy of rxjs elsewhere.
+
+If you are never using rxjs outside of redux-logic and don't plan to use Observables directly in your logic then you can skip the rxjs install and it will be installed as a redux-logic dependency. However if you think you might use Observables directly in the future (possibly creating Observables in your logic), it is still recommended to install rxjs separately first
+just to help ensure that only one copy will be in the project.
+
+The rxjs install below `npm install rxjs@^5` installs the lastest 5.x.x version of rxjs.
+
+```bash
+npm install rxjs@^5 --save  # optional see note above
+npm install redux-logic --save
+```
+
 ## Main usage
 
 ```js
+import { createLogic, createLogicMiddleware } from 'redux-logic';
+
 /* returns a logic object that resembles the same structure of the
    input except that some defaults are applied and values were
    validated. You can directly access your hook functions from the
@@ -27,6 +44,11 @@ const fooLogic = createLogic({
   debounce: 0, // debounce for N ms, default 0
   throttle: 0, // throttle for N ms, default 0
   latest: true, // only take latest, default false
+
+  // In non-production mode only, write to console.error if logic does
+  // not complete by this time in milliseconds.
+  // Set to `0` for non-ending logic.
+  warnTimeout: 60000, // default: 60000 (one minute)
 
   // Put your business logic into one or more of these
   // execution phase hooks: validate, transform, process
@@ -70,7 +92,7 @@ const fooLogic = createLogic({
   // executed. Including dispatch and/or done callbacks will influence
   // the default dispatching mode:
   // 1. Neither dispatch, nor done - dispatches the returned/resolved val
-  // 2. Only dispatch - single dispatch mode, call dispatch exactly once
+  // 2. Only dispatch - single dispatch mode, call dispatch exactly once (deprecated)
   // 3. Both dispatch and done - multi-dispatch mode, call done when finished
   // More details on dispatching modes are in the advanced API docs
   process({ getState, action, cancelled$ }, ?dispatch, ?done) {
@@ -86,6 +108,14 @@ const logicMiddleware = createLogicMiddleware(
   arrLogic, // array of logic items, no duplicate refs to same logic
   deps   // optional injected deps/config, supplied to logic
 );
+
+// dynamically add injected deps at runtime after createStore has been
+// called. These are made available to the logic hooks. The properties
+// of the object `additionalDeps` will be added to the existing deps.
+// For safety, this method does not allow existing deps to be overridden
+// with a new value. It will throw an error if you try to override
+// with a new value (setting to the same value/instance is fine).
+logicMiddleware.addDeps(additionalDeps);
 
 // dynamically add logic later at runtime, keeping logic state
 // new logic should be unique and not refs to previous logic
@@ -151,7 +181,7 @@ Note that you pass an action to `allow` and `reject` as the first argument. You 
 
 You can augment, modify, change actions however you want in your `allow` or `reject` call.
 
-By default, `allow` and `reject` will pass whatever action they are given to the next middleware or reducer unless the type has changed from the original action type. If it has changed then the action will instead by dispatched so that all middleware will have an opportunity to see it prior to it hitting reducers. This should be fine for most types of uses, however if you need to override this automatic mechanism, see the advanced section.
+By default, `allow` and `reject` will pass whatever action they are given to the next middleware or reducer unless the type has changed from the original action type. If it has changed then the action will instead be dispatched so that all middleware will have an opportunity to see it prior to it hitting reducers. This should be fine for most types of uses, however if you need to override this automatic mechanism, see the advanced section.
 
 The default validation hook if not provided is:
 
@@ -190,7 +220,7 @@ The `dispatch` function returns the value passed into it to make it easy to use 
 If you set the `processOptions` object, you can further influence how process behaves streamlining your code.
 
   - `processOptions.dispatchReturn` - if true, then process will use the returned value to dispatch. If you return a promise then it will use the resolve/reject values for dispatching. If you return an observable then it will use its values or error for dispatching. Returning an undefined, promise that resolves to undefined, or observable value of undefined will cause no dispatch. Default varies based on whether the process fn signature includes dispatch or not. If dispatch is included then dispatchReturn defaults to false and vice versa.
-  - `processOptions.dispatchMultiple` - if true, then dispatch function will not end the underlying observable until the `done` callback is called or it is cancelled. The default value for dispatchMultiple is determined by the process fn signature, if it includes the `done` callback then the default is true otherwise it is false.
+  - `processOptions.dispatchMultiple` - if true, then dispatch function will not end the underlying observable until the `done` callback is called or it is cancelled. The default value for dispatchMultiple is determined by the process fn signature, if it includes the `done` callback then the default is true otherwise it is false. Note: in a future version, this option will be always on. If your logic does not end, set the top level option `warnTimeout: 0`.
   - `processOptions.successType` - if set to an action type string or an action creator function it will use this to create the action from the dispatched value. If the `successType` was a string then it will create an action of this type and set the payload to the dispatched value (following [FSA format](https://github.com/acdlite/flux-standard-action "Flux Standard Actions format")). If it was an action creator function then it will pass the value to the action creator and then dispatch that. Default undefined.
   - `processOptions.failType` - if set to an action type string or an action creator function it will use this to create the action from the dispatched error or rejected promise value or errored observable similar to how `successType` works. If `failType` was a string then it uses the [FSA error format](https://github.com/acdlite/flux-standard-action "Flux Standard Actions format") otherwise it calls the action creator provided. If `failType` is not defined and an error is thrown or dispatched that does not itself have a `type` (action type), then an `UNHANDLED_LOGIC_ERROR` will be dispatched with the error as the payload. Default `undefined`.
 
@@ -198,7 +228,7 @@ The process hook's full signature is `process(deps, dispatch?, done?)`.
 
 If the done callback is provided in your code then it is assumed that you want to do multiple dispatching and thus you need to call done when you are finished.
 
-Since it is a really common use case to do a single dispatch, you can omit the done and the process hook switches into single dispatch mode, expecting that dispatch would be called exactly once. If you determine you don't need to dispatch anything then you can make an empty `dispatch()`.
+You can omit the done and the process hook switches into single dispatch mode (this is deprecated), expecting that dispatch would be called exactly once. If you determine you don't need to dispatch anything then you can make an empty `dispatch()`. This mode is deprecated and will be removed in a future version.
 
 If you prefer to use promises, async/await, or observables then redux-logic makes it easy to use those as well ([see discussion later](/jeffbski/redux-logic/blob/master/docs/api.md#dispatch---multi-dispatching-and-process-variable-signature)).
 
@@ -215,6 +245,8 @@ process({ getState, action }, dispatch, done) {
 An example of using `processOptions`:
 
 ```js
+import { createLogic } from 'redux-logic';
+
 const logic = createLogic({
   type: FOO,
   processOptions: {
@@ -304,11 +336,12 @@ There are also built-in properties supplied to the execution hooks regardless of
 
 ### Cancellation / take latest - XHR aborting
 
-Many libraries like axios and fetch don't support aborting/cancelling of an in-flight request, so the best that we can do is to simply not dispatch the results for cancelled or outdated requests. Unfortunately some browsers could delay your new requests while the previous ones are still outstanding (they have limits for concurrent requests).
+Many libraries like fetch don't support aborting/cancelling of an in-flight request, so the best that we can do is to simply not dispatch the results for cancelled or outdated requests. Unfortunately some browsers could delay your new requests while the previous ones are still outstanding (they have limits for concurrent requests).
 
 However if you use a HTTP library that returns an observable like RxJS DOM ajax, then you can dispatch the observable to redux-logic and XHR abort will be performed on in-flight requests if they are cancelled or in a take latest situation. Observables support cancellation and thus when redux-logic cancels the subscription it bubbles back to the source and causes an xhr abort like you would want. Thus if you need true xhr aborts, use RxJS DOM's ajax or similar API that returns an observable and dispatch that to redux-logic.
 
 ```js
+import { createLogic } from 'redux-logic';
 import Rx from 'rxjs'; // or selectively import only what you need
 const ajax = Rx.Observable.ajax;
 
@@ -343,6 +376,7 @@ const usersFetchLogic = createLogic({
 or using processOptions
 
 ```js
+import { createLogic } from 'redux-logic';
 import Rx from 'rxjs'; // or selectively import only what you need
 const ajax = Rx.Observable.ajax;
 
@@ -407,7 +441,7 @@ process({ getState, action }) {
 ```
 
 ```js
-// single dispatch - call dispatch exactly once
+// single dispatch (deprecated) - call dispatch exactly once
 // call with undefined if you do not need to dispatch anything
 process({ getState, action }, dispatch) {
   dispatch(objOrPromiseOrObservable); // call exactly once
@@ -427,7 +461,7 @@ process({ getState, action }, dispatch, done) {
 
 This should be somewhat intuitive so that you include the parameters when you need to use them. In the first case, you are returning an object, promise, or observable so the values returned or resolved will be dispatched.
 
-In the second case you only have dispatch so like with the other hooks (validate/transform) you would be expected to call it exactly once. Due to confusion and misuse, it is likely that future version or redux-logic will remove this single dispatch form.
+In the second case you only have dispatch so like with the other hooks (validate/transform) you would be expected to call it exactly once. Due to confusion and misuse, single-dispatch is deprecated and will be removed in a future version.
 
 And finally in the third case since done is included, it triggers multi-dispatch mode so you can freely dispatch as many items as necessary, just calling done when finished. You can also switch this mode on using processOptions.dispatchMultiple=true regardless of whether you include the `done` cb. In some situations like with a subscription, you might never need to end until cancelled, so you can just set the processOptions.dispatchMultiple to true and ignore the done since it isn't needed.
 
@@ -471,20 +505,21 @@ process({ getState, action }, dispatch) {
 Alternatively you could dispatch an observable and perform any number of dispatches inside it.
 
 ```js
-process({ getState, action }, dispatch) {
+process({ getState, action }, dispatch, done) {
   const ob$ = Observable.of(  // from rxjs
     { type: 'BAR' }, // first dispatch
     { type: 'CAT' }, // second dispatch
     { type: 'DOG' }  // third dispatch
   );
   dispatch(ob$);
+  done(); // tell logic to complete when the ob$ completes
 }
 ```
 
 Or if dispatching things over time
 
 ```js
-process({ getState, action }, dispatch) {
+process({ getState, action }, dispatch, done) {
   const ob$ = Observable.create(obs => {
     // in parallel fire multiple requests and dispatch the results
     // by calling obs.next on the action to dispatch
@@ -497,6 +532,7 @@ process({ getState, action }, dispatch) {
      ]).then(values => obs.complete()); // values dispatched
   });
   dispatch(ob$);
+  done(); // tell logic to complete when the ob$ completes
 }
 ```
 
@@ -507,7 +543,7 @@ For debugging or gaining insight into the internal operations of redux-logic, yo
 ```js
 logicMiddleware.monitor$.subscribe(
   x => console.log(x)
-;)
+);
 ```
 
 The structure emitted by the observable is an object with properties:
@@ -519,6 +555,7 @@ The structure emitted by the observable is an object with properties:
    - begin - enter a logic
    - next - validate or transform intercept has passed to the next logic/middleware
    - nextDisp - validate or transform intercept was successful but needs to be dispatched
+   - nextError - error thrown while the middleware next (or dispatch) call was executing, possibly from downstream middleware, reducer, or render
    - filtered - validate or transform passed undefined so action is filtered and not passed to other logic/middleware/reducers
    - cancelled - intercept was cancelled either from cancelType or take latest
    - dispatch - dispAction was dispatched to store

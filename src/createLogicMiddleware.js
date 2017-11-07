@@ -63,6 +63,7 @@ export default function createLogicMiddleware(arrLogic = [], deps = {}) {
         case 'bottom' : // action cleared bottom of logic stack
         case 'nextDisp' : // action changed type and dispatched
         case 'filtered' : // action filtered
+        case 'dispatchError' : // error when dispatching
         case 'cancelled' : // action cancelled before intercept complete
                            // dispCancelled is not included here since
                            // already accounted for in the 'end' op
@@ -121,7 +122,6 @@ export default function createLogicMiddleware(arrLogic = [], deps = {}) {
     */
   mw.whenComplete = function whenComplete(fn = identity) {
     return lastPending$
-      .filter(x => !logicCount || x.op !== OP_INIT) // no logic or not init
       // .do(x => console.log('wc', x)) /* keep commented out */
       .takeWhile(x => x.pending)
       .map((/* x */) => undefined) // not passing along anything
@@ -129,6 +129,29 @@ export default function createLogicMiddleware(arrLogic = [], deps = {}) {
       .then(fn);
   };
 
+  /**
+     add additional deps after createStore has been run. Useful for
+     dynamically injecting dependencies for the hooks. Throws an error
+     if it tries to override an existing dependency with a new
+     value or instance.
+     @param {object} additionalDeps object of dependencies to add
+     @return {undefined}
+    */
+  mw.addDeps = function addDeps(additionalDeps) {
+    if (typeof additionalDeps !== 'object') {
+      throw new Error('addDeps should be called with an object');
+    }
+    Object.keys(additionalDeps).forEach(k => {
+      const existing = deps[k];
+      const newValue = additionalDeps[k];
+      if (typeof existing !== 'undefined' && // previously existing dep
+          existing !== newValue) { // no override
+        throw new Error(`addDeps cannot override an existing dep value: ${k}`);
+      }
+      // eslint-disable-next-line no-param-reassign
+      deps[k] = newValue;
+    });
+  };
 
   /**
     add logic after createStore has been run. Useful for dynamically
@@ -205,10 +228,17 @@ function applyLogic(arrLogic, store, next, sub, actionIn$, deps,
                                          actionIn$);
   const newSub = actionOut$.subscribe(action => {
     debug('actionEnd$', action);
-    const result = next(action);
+    try {
+      const result = next(action);
+      debug('result', result);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('error in mw dispatch or next call, probably in middlware/reducer/render fn:', err);
+      const msg = (err && err.message) ? err.message : err;
+      monitor$.next({ action, err: msg, op: 'nextError' });
+    }
     // at this point, action is the transformed action, not original
     monitor$.next({ nextAction: action, op: 'bottom' });
-    debug('result', result);
   });
 
   return {
